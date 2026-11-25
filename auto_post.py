@@ -10,14 +10,28 @@ CG_API_KEY = os.environ.get("COINGECKO_API_KEY")
 
 
 # ---------- Imagen desde plantilla HTML ----------
+def find_logo():
+    """Busca el logo: assets/logo.png, luego cualquier imagen en assets/, luego en la raíz."""
+    exts = (".png", ".jpg", ".jpeg", ".webp")
+    if os.path.exists(os.path.join(BASE, "assets", "logo.png")):
+        return "assets/logo.png"
+    for folder, prefix in ((os.path.join(BASE, "assets"), "assets/"), (BASE, "")):
+        if os.path.isdir(folder):
+            for name in sorted(os.listdir(folder)):
+                if name.lower().endswith(exts) and name != "card.png":
+                    return prefix + name
+    return None
+
+
 def render_card(badge, content, out="card.png"):
     from playwright.sync_api import sync_playwright
 
     with open(os.path.join(BASE, "templates", "card.html"), encoding="utf-8") as f:
         page = f.read()
 
-    if os.path.exists(os.path.join(BASE, "assets", "logo.png")):
-        logo = '<img class="logo" src="assets/logo.png">'
+    logo_file = find_logo()
+    if logo_file:
+        logo = f'<img class="logo" src="{logo_file}">'
     else:
         logo = '<div class="logo-fallback">C</div>'
 
