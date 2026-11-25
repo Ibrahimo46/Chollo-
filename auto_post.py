@@ -10,24 +10,44 @@ CG_API_KEY = os.environ.get("COINGECKO_API_KEY")
 
 
 # ---------- Telegram ----------
-def send_text(text):
+BOT_URL = "https://t.me/ChollooOficial_bot"
+SHOW_BOT_BUTTON = False  # cámbialo a True cuando quieras promocionar el bot
+
+
+
+
+def keyboard(rows):
+    clean = [[b for b in row if b] for row in rows]
+    clean = [row for row in clean if row]
+    if not clean:
+        return None
+    return {"inline_keyboard": [[{"text": t, "url": u} for t, u in row] for row in clean]}
+
+
+def send_text(text, buttons=None, silent=False):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    r = requests.post(url, json={"chat_id": CHANNEL_ID, "text": text,
-                                 "parse_mode": "HTML"})
+    payload = {"chat_id": CHANNEL_ID, "text": text, "parse_mode": "HTML",
+               "disable_notification": silent,
+               "link_preview_options": {"is_disabled": True}}
+    if buttons:
+        payload["reply_markup"] = buttons
+    r = requests.post(url, json=payload)
     print("Texto enviado." if r.status_code == 200 else f"Error: {r.text}")
 
 
-def send_to_telegram(text, image_url=None):
-    """Envía foto (URL del logo de la moneda) + texto. Si falla, solo texto."""
+def send_to_telegram(text, image_url=None, buttons=None, silent=False):
+    """Foto (logo de la moneda) + texto + botones. Si falla la foto, solo texto."""
     if not BOT_TOKEN:
         print("Error: BOT_TOKEN no está configurado.")
         return
     if not image_url:
-        return send_text(text)
+        return send_text(text, buttons, silent)
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    payload = {"chat_id": CHANNEL_ID, "photo": image_url,
-               "caption": text, "parse_mode": "HTML"}
+    payload = {"chat_id": CHANNEL_ID, "photo": image_url, "caption": text,
+               "parse_mode": "HTML", "disable_notification": silent}
+    if buttons:
+        payload["reply_markup"] = buttons
     try:
         r = requests.post(url, json=payload, timeout=30)
         if r.status_code == 200:
@@ -36,7 +56,7 @@ def send_to_telegram(text, image_url=None):
         print(f"Error con foto: {r.text}")
     except Exception as e:
         print(f"Error con foto: {e}")
-    send_text(text)
+    send_text(text, buttons, silent)
 
 
 # ---------- Datos ----------
@@ -70,6 +90,23 @@ def price(p):
     return "$" + f"{p:.6f}".rstrip("0").rstrip(".")
 
 
+def compact(n):
+    if n is None:
+        return "—"
+    for limit, suffix in ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if n >= limit:
+            return f"${n / limit:.2f}{suffix}"
+    return f"${n:,.0f}"
+
+
+def chart_button(coin_id, label="📈 Ver gráfico"):
+    return (label, f"https://www.coingecko.com/en/coins/{coin_id}")
+
+
+def bot_button():
+    return ("🛒 Chollos de hoy", BOT_URL) if SHOW_BOT_BUTTON else None
+
+
 def dot(v):
     return "🟢" if v > 0 else "🔴"
 
@@ -88,16 +125,21 @@ def generate_volatility_alert(data):
 
     verb = "sube" if h1 > 0 else "cae"
     icon = "🚀" if h1 > 0 else "📉"
-    lines = [f"⏱ Última hora: <b>{pct(h1)}</b>"]
+    lines = [f"⏱ 1 hora: <b>{pct(h1)}</b>"]
     if h24 is not None:
-        lines.append(f"📅 24 horas: <b>{pct(h24)}</b>")
+        lines.append(f"⏳ 24 horas: <b>{pct(h24)}</b>")
     lines.append(f"💰 Precio: <b>{price(top['current_price'])}</b>")
+    if top.get("total_volume"):
+        lines.append(f"📦 Volumen 24h: <b>{compact(top['total_volume'])}</b>")
+    if top.get("market_cap_rank"):
+        lines.append(f"🏅 Ranking: <b>#{top['market_cap_rank']}</b>")
 
     text = (f"{icon} <b>{esc(top['name'])} ({esc(sym)}) {verb} un {abs(h1):.2f}%</b>\n\n"
             f"<blockquote>" + "\n".join(lines) + "</blockquote>\n"
             f"📊 ¿Oportunidad o trampa? Analiza antes de operar.\n\n"
             f"{tag(sym)} #Cripto #Chollo")
-    return text, top.get("image")
+    buttons = keyboard([[chart_button(top["id"]), bot_button()]])
+    return text, top.get("image"), buttons
 
 
 def generate_top_movers(data):
@@ -118,7 +160,8 @@ def generate_top_movers(data):
             f"<blockquote>{body.rstrip()}</blockquote>\n"
             f"📊 El mercado se mueve rápido. Encuentra tu próxima oportunidad.\n\n"
             f"#Cripto #Mercado #Chollo")
-    return text, lead.get("image")
+    buttons = keyboard([[("📈 Ver ganadores", "https://www.coingecko.com/en/crypto-gainers-losers"), bot_button()]])
+    return text, lead.get("image"), buttons
 
 
 def generate_duel(data):
@@ -137,7 +180,9 @@ def generate_duel(data):
             f"<blockquote>{body}</blockquote>\n"
             f"📊 Rendimiento de las últimas 24 horas.\n\n"
             f"#BTC #ETH #Cripto #Chollo")
-    return text, win_coin.get("image")
+    buttons = keyboard([[chart_button("bitcoin", "₿ Bitcoin"), chart_button("ethereum", "Ξ Ethereum")],
+                        [bot_button()]])
+    return text, win_coin.get("image"), buttons
 
 
 def generate_market_sentiment(data):
@@ -159,7 +204,8 @@ def generate_market_sentiment(data):
             f"<blockquote>{body}</blockquote>\n"
             f"📊 Mantente informado.\n\n"
             f"#BTC #Cripto #Chollo")
-    return text, btc.get("image")
+    buttons = keyboard([[chart_button("bitcoin", "₿ Ver Bitcoin"), bot_button()]])
+    return text, btc.get("image"), buttons
 
 
 def main():
@@ -169,7 +215,8 @@ def main():
         return
 
     result = generate_volatility_alert(data)
-    if result:
+    is_alert = bool(result)
+    if is_alert:
         print("Volatility alert triggered!")
     else:
         gen = random.choice([generate_top_movers, generate_duel,
@@ -177,8 +224,8 @@ def main():
         result = gen(data)
 
     if result:
-        text, image = result
-        send_to_telegram(text, image)
+        text, image, buttons = result
+        send_to_telegram(text, image, buttons, silent=not is_alert)
 
 
 if __name__ == "__main__":
