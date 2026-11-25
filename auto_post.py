@@ -1,70 +1,10 @@
 import os
-import html
 import random
 import requests
 
-BASE = os.path.dirname(os.path.abspath(__file__))
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "@CholloOficial")
 CG_API_KEY = os.environ.get("COINGECKO_API_KEY")
-
-
-# ---------- Imagen desde plantilla HTML ----------
-def find_logo():
-    """Busca el logo: assets/logo.png, luego cualquier imagen en assets/, luego en la raíz."""
-    exts = (".png", ".jpg", ".jpeg", ".webp")
-    if os.path.exists(os.path.join(BASE, "assets", "logo.png")):
-        return "assets/logo.png"
-    for folder, prefix in ((os.path.join(BASE, "assets"), "assets/"), (BASE, "")):
-        if os.path.isdir(folder):
-            for name in sorted(os.listdir(folder)):
-                if name.lower().endswith(exts) and name != "card.png":
-                    return prefix + name
-    return None
-
-
-def render_card(badge, content, out="card.png"):
-    from playwright.sync_api import sync_playwright
-
-    with open(os.path.join(BASE, "templates", "card.html"), encoding="utf-8") as f:
-        page = f.read()
-
-    logo_file = find_logo()
-    if logo_file:
-        logo = f'<img class="logo" src="{logo_file}">'
-    else:
-        logo = '<div class="logo-fallback">C</div>'
-
-    page = (page.replace("{{LOGO}}", logo)
-                .replace("{{BADGE}}", html.escape(badge))
-                .replace("{{CONTENT}}", content))
-
-    tmp = os.path.join(BASE, "_render.html")
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(page)
-
-    out_path = os.path.join(BASE, out)
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        pg = browser.new_page(viewport={"width": 1080, "height": 1080})
-        pg.goto("file://" + tmp)
-        pg.wait_for_load_state("networkidle")
-        pg.screenshot(path=out_path)
-        browser.close()
-    return out_path
-
-
-def safe_render(badge, content):
-    try:
-        return render_card(badge, content)
-    except Exception as e:
-        print(f"No se pudo generar la imagen: {e}")
-        return None
-
-
-def row(label, value, css):
-    return (f'<div class="row"><span>{html.escape(label)}</span>'
-            f'<span class="{css}">{html.escape(value)}</span></div>')
 
 
 # ---------- Telegram ----------
@@ -75,18 +15,19 @@ def send_text(text):
     print("Texto enviado." if r.status_code == 200 else f"Error: {r.text}")
 
 
-def send_to_telegram(text, image=None):
+def send_to_telegram(text, image_url=None):
+    """Envía foto (URL del logo de la moneda) + texto. Si falla, solo texto."""
     if not BOT_TOKEN:
         print("Error: BOT_TOKEN no está configurado.")
         return
-    if not image:
+    if not image_url:
         return send_text(text)
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    data = {"chat_id": CHANNEL_ID, "caption": text, "parse_mode": "HTML"}
+    payload = {"chat_id": CHANNEL_ID, "photo": image_url,
+               "caption": text, "parse_mode": "HTML"}
     try:
-        with open(image, "rb") as f:
-            r = requests.post(url, data=data, files={"photo": f}, timeout=60)
+        r = requests.post(url, json=payload, timeout=30)
         if r.status_code == 200:
             print("Publicado con foto.")
             return
@@ -106,7 +47,7 @@ def get_market_data():
     return r.json() if r.status_code == 200 else None
 
 
-# ---------- Ideas ----------
+# ---------- Ideas (texto, imagen de la moneda) ----------
 def generate_volatility_alert(data):
     alerts = [c for c in data
               if c.get("price_change_percentage_1h_in_currency")
@@ -123,15 +64,7 @@ def generate_volatility_alert(data):
     text += f"💰 Precio actual: <b>${top['current_price']:,}</b>\n"
     text += "📊 ¿Oportunidad o trampa? Mantente atento al mercado.\n\n"
     text += "💡 <i>Analiza el mercado antes de operar.</i>"
-
-    css = "up" if change > 0 else "down"
-    arrow = "▲" if change > 0 else "▼"
-    coin = f'<img class="coin" src="{top["image"]}">' if top.get("image") else ""
-    content = (f'<h1>{coin}<span>{html.escape(top["name"])} ({top["symbol"].upper()})</span></h1>'
-               f'<div class="big {css}">{arrow} {abs(change):.2f}%</div>'
-               f'<div class="sub">en la última hora</div>'
-               f'<div class="price"><span>Precio actual</span><b>${top["current_price"]:,}</b></div>')
-    return text, safe_render("Volatilidad 1h", content)
+    return text, top.get("image")
 
 
 def generate_top_movers(data):
@@ -140,23 +73,13 @@ def generate_top_movers(data):
     gainers, losers = s[:3], list(reversed(s[-3:]))
 
     text = "🏆 <b>Top Ganadores (24h)</b>\n"
-    content = '<div class="sec">Top ganadores</div><div class="rows">'
     for g in gainers:
-        v = g["price_change_percentage_24h"]
-        text += f"• {g['symbol'].upper()}: +{v:.2f}%\n"
-        content += row(g["symbol"].upper(), f"▲ {v:.2f}%", "up")
-    content += '</div>'
-
+        text += f"• {g['symbol'].upper()}: +{g['price_change_percentage_24h']:.2f}%\n"
     text += "\n📉 <b>Top Perdedores (24h)</b>\n"
-    content += '<div class="sec">Top perdedores</div><div class="rows">'
     for l in losers:
-        v = l["price_change_percentage_24h"]
-        text += f"• {l['symbol'].upper()}: {v:.2f}%\n"
-        content += row(l["symbol"].upper(), f"▼ {abs(v):.2f}%", "down")
-    content += '</div>'
-
+        text += f"• {l['symbol'].upper()}: {l['price_change_percentage_24h']:.2f}%\n"
     text += "\n💡 <i>El mercado se mueve rápido. Encuentra tu próxima oportunidad.</i>"
-    return text, safe_render("Últimas 24h", content)
+    return text, gainers[0].get("image")
 
 
 def generate_duel(data):
@@ -165,19 +88,14 @@ def generate_duel(data):
     if not btc or not eth:
         return None
     b, e = btc["price_change_percentage_24h"], eth["price_change_percentage_24h"]
+    winner_coin = btc if b > e else eth
     winner = "Bitcoin (BTC)" if b > e else "Ethereum (ETH)"
 
     text = "⚔️ <b>Duelo de rendimiento (Últimas 24h)</b>\n\n"
     text += f"• <b>Bitcoin (BTC):</b> {'🟢' if b > 0 else '🔴'} {b:+.2f}%\n"
     text += f"• <b>Ethereum (ETH):</b> {'🟢' if e > 0 else '🔴'} {e:+.2f}%\n\n"
     text += f"🏆 Hoy gana: <b>{winner}</b>\n"
-
-    content = ('<div class="sec">Bitcoin vs Ethereum</div><div class="rows">'
-               + row("BTC", f"{b:+.2f}%", "up" if b > 0 else "down")
-               + row("ETH", f"{e:+.2f}%", "up" if e > 0 else "down")
-               + '</div>'
-               f'<div class="sub">Hoy gana: <span class="gold">{winner}</span></div>')
-    return text, safe_render("Duelo 24h", content)
+    return text, winner_coin.get("image")
 
 
 def generate_market_sentiment(data):
@@ -186,19 +104,16 @@ def generate_market_sentiment(data):
         return None
     ch = btc["price_change_percentage_24h"]
     if ch > 2:
-        status, label, css = "🟢 Positivo - Fuerte impulso comprador.", "Positivo", "up"
+        status = "🟢 Positivo - Fuerte impulso comprador."
     elif ch < -2:
-        status, label, css = "🔴 Negativo - Presión de venta.", "Negativo", "down"
+        status = "🔴 Negativo - Presión de venta."
     else:
-        status, label, css = "🟡 Neutral - Mercado en consolidación.", "Neutral", "gold"
+        status = "🟡 Neutral - Mercado en consolidación."
 
     text = (f"🌡 <b>Termómetro del Mercado</b>\n\nBitcoin se mueve en "
             f"<b>{ch:+.2f}%</b> (24h).\n\n📌 <b>Estado:</b> {status}\n\n"
             f"💡 <i>Mantente informado.</i>")
-    content = (f'<h1><span>Bitcoin (BTC) · 24h</span></h1>'
-               f'<div class="big {css}">{ch:+.2f}%</div>'
-               f'<div class="sub">Estado del mercado: <span class="{css}">{label}</span></div>')
-    return text, safe_render("Termómetro", content)
+    return text, btc.get("image")
 
 
 def main():
