@@ -129,7 +129,8 @@ def generate_volatility_alert(data):
     coin = f'<img class="coin" src="{top["image"]}">' if top.get("image") else ""
     content = (f'<h1>{coin}<span>{html.escape(top["name"])} ({top["symbol"].upper()})</span></h1>'
                f'<div class="big {css}">{arrow} {abs(change):.2f}%</div>'
-               f'<div class="sub">Precio actual ${top["current_price"]:,} · última hora</div>')
+               f'<div class="sub">en la última hora</div>'
+               f'<div class="price"><span>Precio actual</span><b>${top["current_price"]:,}</b></div>')
     return text, safe_render("Volatilidad 1h", content)
 
 
