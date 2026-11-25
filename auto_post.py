@@ -11,6 +11,7 @@ CG_API_KEY = os.environ.get("COINGECKO_API_KEY")
 
 # ---------- Telegram ----------
 BOT_URL = "https://t.me/ChollooOficial_bot"
+SHOW_COINGECKO_BUTTON = False  # True = botón "Ver en CoinGecko" bajo cada post
 SHOW_BOT_BUTTON = False  # cámbialo a True cuando quieras promocionar el bot
 
 
@@ -99,8 +100,10 @@ def compact(n):
     return f"${n:,.0f}"
 
 
-def chart_button(coin_id, label="📈 Ver gráfico"):
-    return (label, f"https://www.coingecko.com/en/coins/{coin_id}")
+def chart_button(coin_id, label="📈 Ver en CoinGecko"):
+    if not SHOW_COINGECKO_BUTTON:
+        return None
+    return (label, f"https://www.coingecko.com/es/monedas/{coin_id}")
 
 
 def bot_button():
@@ -160,7 +163,8 @@ def generate_top_movers(data):
             f"<blockquote>{body.rstrip()}</blockquote>\n"
             f"📊 El mercado se mueve rápido. Encuentra tu próxima oportunidad.\n\n"
             f"#Cripto #Mercado #Chollo")
-    buttons = keyboard([[("📈 Ver ganadores", "https://www.coingecko.com/en/crypto-gainers-losers"), bot_button()]])
+    market = ("📊 Ver mercado en CoinGecko", "https://www.coingecko.com/es") if SHOW_COINGECKO_BUTTON else None
+    buttons = keyboard([[market, bot_button()]])
     return text, lead.get("image"), buttons
 
 
@@ -180,7 +184,7 @@ def generate_duel(data):
             f"<blockquote>{body}</blockquote>\n"
             f"📊 Rendimiento de las últimas 24 horas.\n\n"
             f"#BTC #ETH #Cripto #Chollo")
-    buttons = keyboard([[chart_button("bitcoin", "₿ Bitcoin"), chart_button("ethereum", "Ξ Ethereum")],
+    buttons = keyboard([[chart_button("bitcoin", "₿ Bitcoin en CoinGecko"), chart_button("ethereum", "Ξ Ethereum en CoinGecko")],
                         [bot_button()]])
     return text, win_coin.get("image"), buttons
 
@@ -204,7 +208,7 @@ def generate_market_sentiment(data):
             f"<blockquote>{body}</blockquote>\n"
             f"📊 Mantente informado.\n\n"
             f"#BTC #Cripto #Chollo")
-    buttons = keyboard([[chart_button("bitcoin", "₿ Ver Bitcoin"), bot_button()]])
+    buttons = keyboard([[chart_button("bitcoin", "₿ Bitcoin en CoinGecko"), bot_button()]])
     return text, btc.get("image"), buttons
 
 
