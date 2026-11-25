@@ -3,7 +3,7 @@ import os
 import random
 
 # إذا كنت تستخدم GitHub Secrets، سيتم استخدامها. وإلا، سيتم استخدام القيمة الافتراضية.
-BOT_TOKEN = os.environ.get("8835913795:AAEHC6eEo--7J0ZCrj0pIPNlDndvpyS3YPQ")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "@CholloOficial")
 
 def send_to_telegram(text):
