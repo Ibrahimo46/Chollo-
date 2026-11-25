@@ -1,4 +1,6 @@
 import os
+import re
+import html
 import random
 import requests
 
@@ -47,6 +49,31 @@ def get_market_data():
     return r.json() if r.status_code == 200 else None
 
 
+# ---------- Formato ----------
+def esc(x):
+    return html.escape(str(x))
+
+
+def tag(symbol):
+    return "#" + re.sub(r"[^A-Za-z0-9_]", "", symbol.upper())
+
+
+def pct(v):
+    return f"{v:+.2f}%"
+
+
+def price(p):
+    if p is None:
+        return "—"
+    if p >= 1:
+        return f"${p:,.2f}"
+    return "$" + f"{p:.6f}".rstrip("0").rstrip(".")
+
+
+def dot(v):
+    return "🟢" if v > 0 else "🔴"
+
+
 # ---------- Ideas (texto, imagen de la moneda) ----------
 def generate_volatility_alert(data):
     alerts = [c for c in data
@@ -55,15 +82,21 @@ def generate_volatility_alert(data):
     if not alerts:
         return None
     top = max(alerts, key=lambda x: abs(x["price_change_percentage_1h_in_currency"]))
-    change = top["price_change_percentage_1h_in_currency"]
-    direction = "🚀 subida" if change > 0 else "📉 caída"
+    h1 = top["price_change_percentage_1h_in_currency"]
+    h24 = top.get("price_change_percentage_24h")
+    sym = top["symbol"].upper()
 
-    text = "🚨 <b>¡ALERTA DE VOLATILIDAD!</b> 🚨\n\n"
-    text += (f"<b>{top['name']} ({top['symbol'].upper()})</b> acaba de registrar "
-             f"una {direction} del <b>{abs(change):.2f}%</b> en la última hora.\n\n")
-    text += f"💰 Precio actual: <b>${top['current_price']:,}</b>\n"
-    text += "📊 ¿Oportunidad o trampa? Mantente atento al mercado.\n\n"
-    text += "💡 <i>Analiza el mercado antes de operar.</i>"
+    verb = "sube" if h1 > 0 else "cae"
+    icon = "🚀" if h1 > 0 else "📉"
+    lines = [f"⏱ Última hora: <b>{pct(h1)}</b>"]
+    if h24 is not None:
+        lines.append(f"📅 24 horas: <b>{pct(h24)}</b>")
+    lines.append(f"💰 Precio: <b>{price(top['current_price'])}</b>")
+
+    text = (f"{icon} <b>{esc(top['name'])} ({esc(sym)}) {verb} un {abs(h1):.2f}%</b>\n\n"
+            f"<blockquote>" + "\n".join(lines) + "</blockquote>\n"
+            f"📊 ¿Oportunidad o trampa? Analiza antes de operar.\n\n"
+            f"{tag(sym)} #Cripto #Chollo")
     return text, top.get("image")
 
 
@@ -71,15 +104,21 @@ def generate_top_movers(data):
     valid = [c for c in data if c.get("price_change_percentage_24h") is not None]
     s = sorted(valid, key=lambda x: x["price_change_percentage_24h"], reverse=True)
     gainers, losers = s[:3], list(reversed(s[-3:]))
+    lead = gainers[0]
 
-    text = "🏆 <b>Top Ganadores (24h)</b>\n"
+    body = "🟢 <b>Ganadores (24h)</b>\n"
     for g in gainers:
-        text += f"• {g['symbol'].upper()}: +{g['price_change_percentage_24h']:.2f}%\n"
-    text += "\n📉 <b>Top Perdedores (24h)</b>\n"
+        body += f"• {esc(g['symbol'].upper())}: {pct(g['price_change_percentage_24h'])}\n"
+    body += "\n🔴 <b>Perdedores (24h)</b>\n"
     for l in losers:
-        text += f"• {l['symbol'].upper()}: {l['price_change_percentage_24h']:.2f}%\n"
-    text += "\n💡 <i>El mercado se mueve rápido. Encuentra tu próxima oportunidad.</i>"
-    return text, gainers[0].get("image")
+        body += f"• {esc(l['symbol'].upper())}: {pct(l['price_change_percentage_24h'])}\n"
+
+    text = (f"🏆 <b>{esc(lead['name'])} ({esc(lead['symbol'].upper())}) lidera el día con "
+            f"{pct(lead['price_change_percentage_24h'])}</b>\n\n"
+            f"<blockquote>{body.rstrip()}</blockquote>\n"
+            f"📊 El mercado se mueve rápido. Encuentra tu próxima oportunidad.\n\n"
+            f"#Cripto #Mercado #Chollo")
+    return text, lead.get("image")
 
 
 def generate_duel(data):
@@ -88,14 +127,17 @@ def generate_duel(data):
     if not btc or not eth:
         return None
     b, e = btc["price_change_percentage_24h"], eth["price_change_percentage_24h"]
-    winner_coin = btc if b > e else eth
+    win_coin = btc if b > e else eth
     winner = "Bitcoin (BTC)" if b > e else "Ethereum (ETH)"
 
-    text = "⚔️ <b>Duelo de rendimiento (Últimas 24h)</b>\n\n"
-    text += f"• <b>Bitcoin (BTC):</b> {'🟢' if b > 0 else '🔴'} {b:+.2f}%\n"
-    text += f"• <b>Ethereum (ETH):</b> {'🟢' if e > 0 else '🔴'} {e:+.2f}%\n\n"
-    text += f"🏆 Hoy gana: <b>{winner}</b>\n"
-    return text, winner_coin.get("image")
+    body = (f"• Bitcoin (BTC): {dot(b)} <b>{pct(b)}</b>\n"
+            f"• Ethereum (ETH): {dot(e)} <b>{pct(e)}</b>\n"
+            f"📏 Diferencia: <b>{abs(b - e):.2f} puntos</b>")
+    text = (f"⚔️ <b>{winner} gana el duelo de hoy</b>\n\n"
+            f"<blockquote>{body}</blockquote>\n"
+            f"📊 Rendimiento de las últimas 24 horas.\n\n"
+            f"#BTC #ETH #Cripto #Chollo")
+    return text, win_coin.get("image")
 
 
 def generate_market_sentiment(data):
@@ -104,15 +146,19 @@ def generate_market_sentiment(data):
         return None
     ch = btc["price_change_percentage_24h"]
     if ch > 2:
-        status = "🟢 Positivo - Fuerte impulso comprador."
+        word, status = "positivo", "🟢 Positivo - Fuerte impulso comprador."
     elif ch < -2:
-        status = "🔴 Negativo - Presión de venta."
+        word, status = "negativo", "🔴 Negativo - Presión de venta."
     else:
-        status = "🟡 Neutral - Mercado en consolidación."
+        word, status = "neutral", "🟡 Neutral - Mercado en consolidación."
 
-    text = (f"🌡 <b>Termómetro del Mercado</b>\n\nBitcoin se mueve en "
-            f"<b>{ch:+.2f}%</b> (24h).\n\n📌 <b>Estado:</b> {status}\n\n"
-            f"💡 <i>Mantente informado.</i>")
+    body = (f"₿ Bitcoin (24h): <b>{pct(ch)}</b>\n"
+            f"💰 Precio: <b>{price(btc['current_price'])}</b>\n"
+            f"📌 Estado: {status}")
+    text = (f"🌡 <b>Mercado {word}: Bitcoin {pct(ch)}</b>\n\n"
+            f"<blockquote>{body}</blockquote>\n"
+            f"📊 Mantente informado.\n\n"
+            f"#BTC #Cripto #Chollo")
     return text, btc.get("image")
 
 
