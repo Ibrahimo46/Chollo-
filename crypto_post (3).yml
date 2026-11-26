@@ -1,0 +1,36 @@
+name: Auto Crypto Post for Chollo
+on:
+  schedule:
+    - cron: '0 7 * * *'          # Resumen diario (8-9h en España)
+    - cron: '0 18 * * *'         # Cripto en 30 segundos (19-20h en España)
+    - cron: '30 9,13,17,21 * * *' # Alerta de volatilidad (solo si hay)
+  workflow_dispatch:
+    inputs:
+      post_type:
+        description: 'Tipo de publicación'
+        required: true
+        default: 'digest'
+        type: choice
+        options:
+          - digest
+          - tip
+          - alert
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Run Auto Post Script
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+          CHANNEL_ID: "@CholloOficial"
+          POST_TYPE: ${{ github.event.inputs.post_type || (github.event.schedule == '0 7 * * *' && 'digest') || (github.event.schedule == '0 18 * * *' && 'tip') || 'alert' }}
+        run: python auto_post.py
