@@ -165,15 +165,6 @@ def compact(n):
     return f"${n:,.0f}"
 
 
-DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
-MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
-
-
-def fecha_es():
-    now = datetime.now(MADRID)
-    return f"{DIAS[now.weekday()]} {now.day} {MESES[now.month - 1]}"
-
-
 SLOT_CONFIG = {
     "apertura": (
         "Resumen · Apertura",
@@ -194,12 +185,9 @@ SLOT_CONFIG = {
 }
 
 
-def format_unified_post(badge, title, subtitle, box_lines, tip_line, hashtags):
-    """قالب موحّد مختصر ومنسق لجميع المنشورات."""
-    parts = [
-        f"{badge} <b>{esc(title)}</b>",
-        f"<i>{esc(subtitle)}</i>",
-    ]
+def format_unified_post(badge, title, box_lines, tip_line, hashtags):
+    """قالب موحّد مختصر ومنسق بدون تاريخ."""
+    parts = [f"{badge} <b>{esc(title)}</b>"]
     if box_lines:
         parts += ["", "<blockquote>" + "\n".join(box_lines) + "</blockquote>"]
     if tip_line:
@@ -250,7 +238,6 @@ def generate_digest(data):
     text = format_unified_post(
         badge="📰",
         title=slot_title,
-        subtitle=fecha_es(),
         box_lines=box_lines,
         tip_line=tip_line,
         hashtags="#Cripto #Bitcoin #Chollo",
@@ -335,7 +322,6 @@ def generate_tip():
     text = format_unified_post(
         badge="💡",
         title=f"30s · {title}",
-        subtitle=fecha_es(),
         box_lines=[esc(body)],
         tip_line="💡 Guarda este apunte para consultarlo rápido.",
         hashtags="#Aprende #Cripto #Chollo",
@@ -370,8 +356,7 @@ def generate_volatility_alert(data):
 
     text = format_unified_post(
         badge=icon,
-        title=f"{esc(sym)} {verb} {abs(h1):.2f}%",
-        subtitle=f"{top['name']} · {fecha_es()}",
+        title=f"{esc(sym)} ({top['name']}) {verb} {abs(h1):.2f}%",
         box_lines=box_lines,
         tip_line="💡 Revisa liquidez y spread antes de moverte.",
         hashtags=f"{tag(sym)} #Cripto #Chollo",
