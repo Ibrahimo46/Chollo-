@@ -15,11 +15,12 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "@CholloOficial")
 CG_API_KEY = os.environ.get("COINGECKO_API_KEY")
 POST_TYPE = os.environ.get("POST_TYPE", "alert")  # digest | tip | alert
+SLOT = os.environ.get("POST_SLOT", "apertura")   # apertura | seguimiento | conversion | cierre
 
 # ---------- Botones (desactivados por ahora) ----------
 BOT_URL = "https://t.me/ChollooOficial_bot"
-SHOW_COINGECKO_BUTTON = False  # True = botón "Ver en CoinGecko" bajo la alerta
-SHOW_BOT_BUTTON = False        # True cuando quieras promocionar el bot
+SHOW_COINGECKO_BUTTON = False
+SHOW_BOT_BUTTON = False
 
 
 def keyboard(rows):
@@ -173,52 +174,41 @@ def fecha_es():
     return f"{DIAS[now.weekday()]} {now.day} {MESES[now.month - 1]}"
 
 
-def format_unified_post(badge, title, subtitle, box_lines, note_line, hashtags):
-    """
-    قالب نص موحّد لجميع المنشورات:
-    1) شارة + عنوان رئيسي
-    2) سطر فرعي (التاريخ أو التصنيف)
-    3) صندوق بيانات/محتوى موحّد (<blockquote>)
-    4) سطر ختامي قصير + هاشتاغات ثابتة في النهاية
-    """
+SLOT_CONFIG = {
+    "apertura": (
+        "Resumen · Apertura",
+        "💡 Revisa precios y spreads antes de operar.",
+    ),
+    "seguimiento": (
+        "Resumen · Seguimiento",
+        "💡 Sigue los movimientos clave antes de actuar.",
+    ),
+    "conversion": (
+        "Resumen · Conversión",
+        "💡 Compara el momento y coste al convertir.",
+    ),
+    "cierre": (
+        "Resumen · Cierre",
+        "💡 Cierra el día con calma; evita impulsos.",
+    ),
+}
+
+
+def format_unified_post(badge, title, subtitle, box_lines, tip_line, hashtags):
+    """قالب موحّد مختصر ومنسق لجميع المنشورات."""
     parts = [
         f"{badge} <b>{esc(title)}</b>",
         f"<i>{esc(subtitle)}</i>",
     ]
     if box_lines:
         parts += ["", "<blockquote>" + "\n".join(box_lines) + "</blockquote>"]
-    if note_line:
-        parts += ["", esc(note_line)]
+    if tip_line:
+        parts += ["", esc(tip_line)]
     parts += ["", hashtags]
     return "\n".join(parts)
 
 
-# ---------- 1) Resumen diario ----------
-def lectura_rapida(fng, dominance):
-    parts = []
-    if fng is not None:
-        v = fng[0]
-        if v <= 25:
-            parts.append("Miedo extremo en el mercado: la volatilidad suele ser alta, "
-                         "así que más prudencia y menos impulsos.")
-        elif v <= 45:
-            parts.append("El mercado sigue con miedo. Cuando domina el miedo, "
-                         "las decisiones impulsivas suelen salir caras.")
-        elif v <= 55:
-            parts.append("Sentimiento neutral: el mercado espera una señal clara.")
-        elif v <= 75:
-            parts.append("Hay optimismo en el mercado. Ojo con la euforia: "
-                         "lo que sube rápido también puede corregir rápido.")
-        else:
-            parts.append("Codicia extrema: históricamente es cuando más conviene la cautela.")
-    if dominance is not None:
-        if dominance >= 55:
-            parts.append("Bitcoin domina el mercado, y las altcoins suelen moverse con más riesgo.")
-        else:
-            parts.append("Las altcoins ganan peso frente a Bitcoin.")
-    return " ".join(parts)
-
-
+# ---------- 1) Resumen diario (4 franjas) ----------
 def generate_digest(data):
     glob = (cg_get("global") or {}).get("data") or {}
     fng = get_fear_greed()
@@ -228,42 +218,41 @@ def generate_digest(data):
     eth = next((c for c in data if c["symbol"] == "eth"), None)
     movers = [c for c in data if c.get("price_change_percentage_24h") is not None]
 
+    slot_title, tip_line = SLOT_CONFIG.get(SLOT, SLOT_CONFIG["apertura"])
+
     box_lines = []
     cap = (glob.get("total_market_cap") or {}).get("usd")
     chg = glob.get("market_cap_change_percentage_24h_usd")
     if cap:
         arrow = "" if chg is None else f" ({'▲' if chg >= 0 else '▼'} {abs(chg):.1f}%)"
-        box_lines.append(f"🌍 Mercado total: <b>{compact(cap)}</b>{arrow}")
+        box_lines.append(f"🌍 Mercado: <b>{compact(cap)}</b>{arrow}")
     dom = (glob.get("market_cap_percentage") or {}).get("btc")
     if dom is not None:
-        box_lines.append(f"₿ Dominancia BTC: <b>{dom:.1f}%</b>")
+        box_lines.append(f"₿ Dom. BTC: <b>{dom:.1f}%</b>")
     if fng:
         icon = "😨" if fng[0] <= 45 else ("😐" if fng[0] <= 55 else "🤑")
-        box_lines.append(f"{icon} Miedo y codicia: <b>{fng[0]}/100</b> · {esc(fng[1])}")
+        box_lines.append(f"{icon} Sentimiento: <b>{fng[0]}/100</b> · {esc(fng[1])}")
 
     if btc:
-        box_lines.append(f"₿ Bitcoin: <b>{price(btc['current_price'])}</b> ({pct(btc['price_change_percentage_24h'])})")
+        box_lines.append(f"₿ BTC: <b>{price(btc['current_price'])}</b> ({pct(btc['price_change_percentage_24h'])})")
     if eth:
-        box_lines.append(f"Ξ Ethereum: <b>{price(eth['current_price'])}</b> ({pct(eth['price_change_percentage_24h'])})")
+        box_lines.append(f"Ξ ETH: <b>{price(eth['current_price'])}</b> ({pct(eth['price_change_percentage_24h'])})")
 
     trend = [c["item"]["symbol"].upper() for c in (trending.get("coins") or [])[:3]]
     if trend:
-        box_lines.append(f"🔥 Tendencia: <b>{esc(', '.join(trend))}</b>")
+        box_lines.append(f"🔥 Top 3: <b>{esc(', '.join(trend))}</b>")
     if movers:
         best = max(movers, key=lambda c: c["price_change_percentage_24h"])
         worst = min(movers, key=lambda c: c["price_change_percentage_24h"])
-        box_lines.append(f"🏆 Mejor 24h: <b>{esc(best['symbol'].upper())} {pct(best['price_change_percentage_24h'])}</b>")
+        box_lines.append(f"🏆 Top 24h: <b>{esc(best['symbol'].upper())} {pct(best['price_change_percentage_24h'])}</b>")
         box_lines.append(f"📉 Peor 24h: <b>{esc(worst['symbol'].upper())} {pct(worst['price_change_percentage_24h'])}</b>")
-
-    reading = lectura_rapida(fng, dom)
-    note_line = f"💡 Lectura rápida: {reading}" if reading else None
 
     text = format_unified_post(
         badge="📰",
-        title="Resumen cripto · Chollo",
+        title=slot_title,
         subtitle=fecha_es(),
         box_lines=box_lines,
-        note_line=note_line,
+        tip_line=tip_line,
         hashtags="#Cripto #Bitcoin #Chollo",
     )
 
@@ -277,65 +266,65 @@ def generate_digest(data):
 # ---------- 2) «Cripto en 30 segundos» ----------
 TIPS = [
     ("¿Qué es una cartera (wallet)?",
-     "Es la app o dispositivo que guarda tus claves privadas, no tus monedas. Las monedas viven en la blockchain; la clave es lo que te da acceso a ellas."),
+     "Guarda tus claves privadas, no tus monedas. Las monedas viven en la blockchain; la clave te da acceso."),
     ("La frase semilla",
-     "Son 12 o 24 palabras que restauran tu cartera. Quien las tenga controla tus fondos. No las compartas nunca ni las guardes en fotos o en la nube."),
+     "12 o 24 palabras que restauran tu cartera. Quien las tenga controla tus fondos; no las guardes en fotos o nube."),
     ("Cartera caliente vs. fría",
-     "La caliente está conectada a internet: cómoda, pero más expuesta. La fría (hardware) guarda las claves fuera de línea y es más segura para cantidades grandes."),
+     "La caliente está conectada a internet; la fría guarda claves sin conexión y es más segura para montos mayores."),
     ("Exchange centralizado vs. descentralizado",
-     "En un exchange centralizado la plataforma custodia tus fondos; en uno descentralizado operas desde tu propia cartera. Cada modelo tiene sus propios riesgos."),
+     "En un CEX custodias en la plataforma; en un DEX operas desde tu cartera. Cada modelo tiene riesgos propios."),
     ("«Not your keys, not your coins»",
-     "Si tus claves están en un exchange, el acceso a tus fondos depende de él. Es una advertencia sobre la custodia: conviene saber dónde están tus monedas."),
+     "Si tus claves están en un exchange, el acceso depende de él. Revisa dónde custodias tus fondos."),
     ("Capitalización de mercado",
-     "Se calcula como precio × monedas en circulación. Una moneda de $0.01 no es «más barata» que una de $1,000: compara la capitalización, no solo el precio."),
+     "Precio × oferta en circulación. Compara la capitalización, no solo el precio unitario de la moneda."),
     ("Volumen de trading",
-     "Es el valor negociado en 24 horas. Una subida con poco volumen es menos fiable, porque pocas operaciones pueden mover el precio."),
+     "Valor negociado en 24h. Poco volumen significa mayor facilidad para mover el precio con pocas órdenes."),
     ("Volatilidad",
-     "Las criptomonedas pueden subir o caer un 10% en un solo día. Invierte únicamente lo que puedas permitirte perder."),
+     "Movimientos bruscos en poco tiempo son habituales. Opera con gestión de riesgo y sin comprometer lo necesario."),
     ("DCA: comprar poco a poco",
-     "Comprar una cantidad fija a intervalos regulares reduce el impacto de elegir mal el momento. No elimina el riesgo ni asegura ganancias."),
+     "Compras periódicas de un monto fijo suavizan el punto de entrada, aunque no eliminan el riesgo de mercado."),
     ("Stop loss",
-     "Es una orden que vende automáticamente si el precio cae a un nivel que tú fijas. Ayuda a limitar pérdidas, aunque en mercados muy rápidos puede ejecutarse a un precio peor."),
+     "Orden automática para limitar pérdidas si el precio cae a un nivel definido, sujeta a deslizamiento en picos rápidos."),
     ("FOMO",
-     "Es el miedo a quedarte fuera: comprar solo porque algo sube mucho y todos hablan de ello. Suele terminar en comprar caro. Ten un plan antes de operar."),
+     "Comprar por miedo a quedarte fuera tras una subida rápida suele llevar a malas entradas. Sigue un plan."),
     ("FUD",
-     "Miedo, incertidumbre y duda: rumores negativos que pueden provocar ventas masivas. Verifica en fuentes oficiales antes de reaccionar."),
+     "Miedo, incertidumbre y duda por rumores. Verifica en fuentes oficiales antes de reaccionar."),
     ("El halving de Bitcoin",
-     "Cada cuatro años aproximadamente, la recompensa de los mineros se reduce a la mitad. Limita la emisión de nuevos bitcoin y es un tema central en el mercado."),
+     "Reduce a la mitad la recompensa de bloque aproximadamente cada cuatro años, limitando la nueva emisión."),
     ("Stablecoins",
-     "Son monedas diseñadas para mantener un valor estable, por ejemplo 1 dólar. Sirven para moverte entre criptos, pero revisa siempre quién las respalda."),
+     "Buscan mantener paridad (por ejemplo 1 USD). Útiles para mover liquidez; revisa siempre su respaldo."),
     ("Comisiones de red (gas)",
-     "Es lo que pagas para que la red procese tu transacción. Varía según la congestión: compara antes de enviar y no te apresures."),
+     "Coste para procesar la transacción en la red. Varía según congestión; revisa antes de confirmar."),
     ("Estafas de «duplica tu dinero»",
-     "Nadie legítimo te garantiza rendimientos ni te pide enviar cripto para «desbloquear» ganancias. Si suena demasiado bueno para ser verdad, desconfía."),
+     "Nadie legítimo garantiza rentabilidades ni pide enviar fondos para desbloquear premios. Desconfía."),
     ("Phishing",
-     "Son enlaces falsos que imitan webs reales para robar tus claves. Usa marcadores, escribe las direcciones a mano y nunca introduzcas tu frase semilla en una web."),
+     "Enlace o web falsa que imita servicios reales para robar claves. Usa marcadores y nunca compartas tu semilla."),
     ("Verifica la dirección y la red",
-     "Las transacciones cripto no se pueden revertir. Comprueba la dirección y la red antes de enviar, y haz primero un envío pequeño de prueba."),
+     "Las transferencias en blockchain son irreversibles. Confirma dirección y red; haz una prueba pequeña si dudas."),
     ("Diversificación",
-     "No poner todo en una sola moneda reduce el riesgo de que un único fallo te afecte demasiado. No significa comprar muchas monedas sin criterio."),
+     "Repartir exposición reduce el impacto de un fallo aislado, siempre con criterio y sin sobreexposición."),
     ("¿Qué es una altcoin?",
-     "Cualquier criptomoneda que no sea Bitcoin. Suelen ser más volátiles y arriesgadas que BTC."),
+     "Cualquier cripto distinta de Bitcoin; suele presentar mayor volatilidad y riesgo."),
     ("Dominancia de Bitcoin",
-     "Es el porcentaje del mercado total que representa Bitcoin. Si sube, el dinero se concentra en BTC; si baja, las altcoins ganan peso."),
+     "Porcentaje del mercado total que ocupa BTC. Ayuda a leer si el capital se concentra en BTC o rota a altcoins."),
     ("Índice de miedo y codicia",
-     "Mide el sentimiento del mercado de 0 (miedo extremo) a 100 (codicia extrema). Es un termómetro, no una predicción."),
+     "Mide el sentimiento de 0 a 100. Es una referencia del entorno, no una señal automática de compra o venta."),
     ("Capitalización baja = más riesgo",
-     "Las monedas de baja capitalización se mueven con pocas operaciones: pueden dispararse, pero también caer a cero. Investiga antes de entrar."),
+     "Tokens de baja capitalización pueden moverse con fuerza en ambos sentidos y tener menor liquidez."),
     ("Rug pull",
-     "Ocurre cuando los creadores de un proyecto se llevan el dinero y lo abandonan. Señales de alerta: equipo anónimo, promesas irreales y falta de auditorías."),
+     "Abandono de un proyecto retirando su liquidez. Cuidado con promesas irreales, falta de transparencia y prisas."),
     ("Staking",
-     "Consiste en bloquear tus monedas para ayudar a validar una red a cambio de recompensas. Ojo: tus fondos pueden quedar bloqueados y las recompensas no están garantizadas."),
+     "Bloquear fondos para apoyar una red a cambio de recompensas, con posibles periodos de bloqueo y riesgo asociado."),
     ("¿Qué es un NFT?",
-     "Es un token único que representa la propiedad de un elemento digital. Su valor depende por completo de la demanda y el mercado puede ser poco líquido."),
+     "Token único ligado a un activo digital; su liquidez y valor dependen por completo de la demanda."),
     ("¿Qué es la blockchain?",
-     "Es un registro público y compartido donde las transacciones quedan encadenadas y son muy difíciles de alterar. Es la tecnología detrás de Bitcoin."),
+     "Registro distribuido y encadenado donde las operaciones quedan registradas de forma verificable."),
     ("Impuestos y criptomonedas",
-     "En muchos países vender o intercambiar cripto es una operación fiscal. Guarda un registro de tus compras y ventas y consulta las normas de tu país."),
+     "Vender o permutar cripto puede tener implicaciones fiscales según tu país. Lleva un registro claro de tus movimientos."),
     ("Liquidez",
-     "Es la facilidad para comprar o vender sin mover el precio. Una moneda con poca liquidez puede ser difícil de vender justo cuando lo necesitas."),
+     "Facilidad para entrar o salir sin alterar demasiado el precio. Baja liquidez implica mayor coste de ejecución."),
     ("Ten un plan antes de operar",
-     "Define de antemano cuánto inviertes, cuándo sales si va mal y cuándo tomas ganancias. Un plan escrito te protege de decidir con emociones."),
+     "Define entrada, invalidación y objetivo antes de ejecutar. Reduce decisiones guiadas por la emoción."),
 ]
 
 
@@ -345,10 +334,10 @@ def generate_tip():
     title, body = TIPS[n]
     text = format_unified_post(
         badge="💡",
-        title=f"Cripto en 30 segundos · {title}",
+        title=f"30s · {title}",
         subtitle=fecha_es(),
         box_lines=[esc(body)],
-        note_line="📌 Guarda este post por si lo necesitas más tarde.",
+        tip_line="💡 Guarda este apunte para consultarlo rápido.",
         hashtags="#Aprende #Cripto #Chollo",
     )
     return text, None, None
@@ -370,21 +359,21 @@ def generate_volatility_alert(data):
 
     verb = "sube" if h1 > 0 else "cae"
     icon = "🚀" if h1 > 0 else "📉"
-    box_lines = [f"⏱ 1 hora: <b>{pct(h1)}</b>"]
+    box_lines = [f"⏱ 1h: <b>{pct(h1)}</b>"]
     if h24 is not None:
-        box_lines.append(f"⏳ 24 horas: <b>{pct(h24)}</b>")
+        box_lines.append(f"⏳ 24h: <b>{pct(h24)}</b>")
     box_lines.append(f"💰 Precio: <b>{price(top['current_price'])}</b>")
     if top.get("total_volume"):
-        box_lines.append(f"📦 Volumen 24h: <b>{compact(top['total_volume'])}</b>")
+        box_lines.append(f"📦 Vol 24h: <b>{compact(top['total_volume'])}</b>")
     if top.get("market_cap_rank"):
-        box_lines.append(f"🏅 Ranking: <b>#{top['market_cap_rank']}</b>")
+        box_lines.append(f"🏅 Rank: <b>#{top['market_cap_rank']}</b>")
 
     text = format_unified_post(
         badge=icon,
-        title=f"{top['name']} ({sym}) {verb} un {abs(h1):.2f}%",
-        subtitle=fecha_es(),
+        title=f"{esc(sym)} {verb} {abs(h1):.2f}%",
+        subtitle=f"{top['name']} · {fecha_es()}",
         box_lines=box_lines,
-        note_line="📊 ¿Oportunidad o trampa? Analiza antes de operar.",
+        tip_line="💡 Revisa liquidez y spread antes de moverte.",
         hashtags=f"{tag(sym)} #Cripto #Chollo",
     )
     buttons = keyboard([[chart_button(top["id"]), bot_button()]])
@@ -393,7 +382,7 @@ def generate_volatility_alert(data):
 
 # ---------- Main ----------
 def main():
-    print(f"Tipo de publicación: {POST_TYPE}")
+    print(f"Tipo de publicación: {POST_TYPE} | Franja: {SLOT}")
 
     if POST_TYPE == "tip":
         text, image, buttons = generate_tip()
