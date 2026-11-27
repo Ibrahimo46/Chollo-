@@ -33,15 +33,38 @@ def send_channel_post(photo_path_or_url: str, data: dict):
     caption = build_fixed_caption(data)
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-    payload = {
-        "chat_id": CHAT_ID,
-        "photo": photo_path_or_url,
-        "caption": caption,
-        "parse_mode": "HTML",
-    }
+    if os.path.exists(photo_path_or_url):
+        with open(photo_path_or_url, "rb") as img_file:
+            payload = {
+                "chat_id": CHAT_ID,
+                "caption": caption,
+                "parse_mode": "HTML",
+            }
+            response = requests.post(
+                url,
+                data=payload,
+                files={"photo": img_file},
+                timeout=30,
+            )
+    else:
+        img_resp = requests.get(photo_path_or_url, timeout=20)
+        img_resp.raise_for_status()
+        payload = {
+            "chat_id": CHAT_ID,
+            "caption": caption,
+            "parse_mode": "HTML",
+        }
+        response = requests.post(
+            url,
+            data=payload,
+            files={"photo": ("post_image.png", img_resp.content, "image/png")},
+            timeout=30,
+        )
 
-    response = requests.post(url, json=payload, timeout=20)
-    response.raise_for_status()
+    if not response.ok:
+        print("Telegram error:", response.status_code, response.text)
+        response.raise_for_status()
+
     return response.json()
 
 
